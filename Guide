@@ -1,3 +1,5 @@
+https://partner.cloudskillsboost.google/focuses/14666?parent=catalog
+
 Once your cluster has been created, configure kubectl command line access by running the following:
 
 export GCLOUD_PROJECT=$(gcloud config get-value project)
