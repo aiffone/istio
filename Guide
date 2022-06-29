@@ -1,0 +1,256 @@
+Once your cluster has been created, configure kubectl command line access by running the following:
+
+export GCLOUD_PROJECT=$(gcloud config get-value project)
+gcloud container clusters get-credentials $CLUSTER_NAME \
+    --zone $CLUSTER_ZONE --project $GCLOUD_PROJECT
+Copied!
+Grant admin permissions in the cluster to the current gcloud user:
+
+kubectl create clusterrolebinding cluster-admin-binding \
+    --clusterrole=cluster-admin \
+    --user=$(gcloud config get-value core/account)
+Copied!
+Output (do not copy)
+
+clusterrolebinding.rbac.authorization.k8s.io/cluster-admin-binding created
+Note: although you can run the demo app without granting cluster admin permissions, the permissions are required if you want to access telemetry data and other Istio features.
+Click Check my progress to verify the objective.
+Install and configure a cluster with the Istio on GKE Add-On
+
+Verify installation
+Check that your cluster is up and running.
+
+gcloud container clusters list
+Copied!
+Output (do not copy)
+
+NAME     LOCATION       MASTER_VERSION  ... STATUS
+central  us-central1-b  1.16.9-gke.2        RUNNING
+Ensure the following Kubernetes services are deployed: istio-citadel, istio-galley, istio-pilot, istio-ingressgateway, istio-policy, istio-sidecar-injector, and istio-telemetry. You'll also see other deployed services:
+
+kubectl get service -n istio-system
+Copied!
+Output (do not copy)
+
+NAME                     TYPE           CLUSTER-IP      ...
+istio-citadel            ClusterIP      10.107.14.228   ...
+istio-galley             ClusterIP      10.107.5.4      ...
+istio-ingressgateway     LoadBalancer   10.107.6.234    ...
+istio-pilot              ClusterIP      10.107.7.175    ...
+istio-policy             ClusterIP      10.107.1.223    ...
+istio-sidecar-injector   ClusterIP      10.107.14.28    ...
+istio-telemetry          ClusterIP      10.107.7.170    ...
+promsd                   ClusterIP      10.107.15.229   ...
+Ensure the corresponding Kubernetes pods are deployed and all containers are up and running: istio-pilot, istio-galley, istio-policy, istio-telemetry, istio-ingressgateway, istio-sidecar-injector, and istio-citadel.
+
+kubectl get pods -n istio-system
+Copied!
+Output (do not copy)
+
+NAME                                           READY  STATUS    ...
+istio-citadel-bc69f964d-5qlh4                  1/1    Running   ...
+istio-galley-869ddb78b9-cqnxx                  1/1    Running   ...
+istio-ingressgateway-75f6945d-blcwf            1/1    Running   ...
+istio-pilot-578595b884-8smrd                   2/2    Running   ...
+istio-policy-7975f787f5-qljrn                  2/2    Running   ...
+istio-security-post-install-1.4.6-gke.0-wtqf6  0/1    Completed ...
+istio-sidecar-injector-d5485f495-2rfxt         1/1    Running   ...
+istio-telemetry-688db7d55d-2vd84               2/2    Running   ...
+promsd-696bcc5b96-fwhhj                        2/2    Running   ...
+Deploy Bookinfo, an Istio-enabled multi-service application
+In this task, you enable the istioctl tool, set up the Bookinfo sample microservices application, and explore the app.
+
+Download and configure istioctl
+Use Cloud Shell to download and extract the Istio release, with the istioctl tool, and sample code:
+
+export LAB_DIR=$HOME/bookinfo-lab
+export ISTIO_VERSION=1.4.6
+mkdir $LAB_DIR
+cd $LAB_DIR
+curl -L https://git.io/getLatestIstio | ISTIO_VERSION=$ISTIO_VERSION sh -
+Copied!
+Make the Istio tools visible to your environment, by adding bin to your PATH:
+
+cd ./istio-*
+export PATH=$PWD/bin:$PATH
+Copied!
+The installation directory contains the following files which we'll use:
+
+Sample applications in samples/.
+The istioctl client binary in the bin/ directory. Similar to kubectl for Kubernetes, this is the tool used to manage Istio, including network routing and security policies.
+Verify istioctl works:
+
+istioctl version
+Copied!
+Output (do not copy)
+
+client version: 1.4.6
+citadel version: 1.4.11-gke.3
+galley version: 1.4.11-gke.3
+ingressgateway version: 1.4.11-gke.3
+pilot version: 1.4.11-gke.3
+policy version: 1.4.11-gke.3
+sidecar-injector version: 1.4.11-gke.3
+telemetry version: 1.4.11-gke.3
+istiod version:
+data plane version: 1.4.11-gke.3 (1 proxies)
+Bookinfo Overview
+Now that Istio is configured and verified, you can deploy one of the sample applications provided with the installation — BookInfo. This is a simple mock bookstore application made up of four microservices - all managed using Istio. Each microservice is written in a different language, to demonstrate how you can use Istio in a multi-language environment, without any changes to code.
+
+The microservices are:
+
+productpage: calls the details and reviews microservices to populate the page.
+details: contains book information.
+reviews: contains book reviews. It also calls the ratings microservice.
+ratings: contains book ranking information that accompanies a book review.
+There are 3 versions of the reviews microservice:
+
+Reviews v1 doesn't call the ratings service.
+Reviews v2 calls the ratings service, and displays each rating as 1 - 5 black stars.
+Reviews v3 calls the ratings service, and displays each rating as 1 - 5 red stars.
+The end-to-end architecture of the application looks like this:
+
+Bookinfo Architecture
+
+You can find the source code and all the other files used in this example in your Istio samples/bookinfo directory.
+
+Deploy Bookinfo
+Look at the .yaml which describes the bookInfo application:
+
+cat samples/bookinfo/platform/kube/bookinfo.yaml
+Copied!
+Look for containers to see that each Deployment, has one container, for each version of each service in the Bookinfo application.
+
+Look at the same .yaml with Istio proxy sidecars injected using istioctl:
+
+istioctl kube-inject -f samples/bookinfo/platform/kube/bookinfo.yaml
+Copied!
+Now, when you scroll up, and look for containers, you can see extra configuration describing the proxy sidecar containers that will be deployed.
+
+istioctl kube-inject takes a Kubernetes YAML file as input, and outputs a version of that YAML which includes the Istio proxy. You can look at one of the Deployments in the output from istio kube-inject. It includes a second container, the Istio sidecar, along with all the configuration necessary.
+In Cloud Shell, use the following command to inject the proxy sidecar along with each application Pod that is deployed.
+
+kubectl apply -f <(istioctl kube-inject -f samples/bookinfo/platform/kube/bookinfo.yaml)
+Copied!
+Istio uses an extended version of the open-source Envoy proxy, a high-performance proxy developed in C++, to mediate all inbound and outbound traffic for all services in the service mesh. Istio leverages Envoy's many built-in features including dynamic service discovery, load balancing, TLS termination, HTTP/2 & gRPC proxying, circuit breakers, health checks, staged rollouts with %-based traffic split, fault injection, and rich metrics.
+Output (do not copy)
+
+service/details created
+serviceaccount/bookinfo-details created
+deployment.apps/details-v1 created
+service/ratings created
+serviceaccount/bookinfo-ratings created
+deployment.apps/ratings-v1 created
+service/reviews created
+serviceaccount/bookinfo-reviews created
+deployment.apps/reviews-v1 created
+deployment.apps/reviews-v2 created
+deployment.apps/reviews-v3 created
+service/productpage created
+serviceaccount/bookinfo-productpage created
+deployment.apps/productpage-v1 created
+Note: Automatic sidecar injection can be enabled by labeling the namespace hosting the application with istio-injection=enabled, using a command like: kubectl label namespace default istio-injection=enabled
+Click Check my progress to verify the objective.
+Deploy Bookinfo, an Istio-enabled multi-service application.
+
+Enable external access using an Istio Ingress Gateway
+Now that the Bookinfo services are up and running, you need to make the application accessible from outside of your Kubernetes cluster, e.g. from a browser. An Istio Gateway is used for this purpose.
+
+Look at the .yaml which describes the configuration for the application ingress gateway:
+
+cat samples/bookinfo/networking/bookinfo-gateway.yaml
+Copied!
+Look for the Gateway and VirtualService mesh resources which get deployed. The Gateway exposes services to users outside the service mesh, and allows Istio features such as monitoring and route rules to be applied to traffic entering the cluster.
+
+Configure the ingress gateway for the application, which exposes an external IP you will use later:
+
+kubectl apply -f samples/bookinfo/networking/bookinfo-gateway.yaml
+Copied!
+Output (do not copy)
+
+gateway.networking.istio.io/bookinfo-gateway created
+virtualservice.networking.istio.io/bookinfo created
+Verify the Bookinfo deployments
+Confirm that the application has been deployed correctly, review services, pods, and the ingress gateway:
+
+kubectl get services
+Copied!
+Output (do not copy)
+
+NAME          TYPE        CLUSTER-IP    ...
+details       ClusterIP   10.107.0.77   ...
+kubernetes    ClusterIP   10.107.0.1    ...
+productpage   ClusterIP   10.107.8.22   ...
+ratings       ClusterIP   10.107.13.29  ...
+reviews       ClusterIP   10.107.12.100 ...
+Review running application pods:
+
+kubectl get pods
+Copied!
+Output (do not copy)
+
+NAME                              READY     STATUS
+details-v1-1520924117-48z17       2/2       Running
+productpage-v1-560495357-jk1lz    2/2       Running
+ratings-v1-734492171-rnr5l        2/2       Running
+reviews-v1-874083890-f0qf0        2/2       Running
+reviews-v2-1343845940-b34q5       2/2       Running
+reviews-v3-1813607990-8ch52       2/2       Running
+You may need to re-run this command until you see that all six pods are in Running status.
+
+Note: See how each pod has two containers? That's the application container and the Istio proxy sidecar.
+Confirm that the Bookinfo application is running by sending a curl request to it from some pod, within the cluster, for example from ratings:
+
+kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') \
+    -c ratings -- curl productpage:9080/productpage | grep -o "<title>.*</title>"
+Copied!
+Output (do not copy)
+
+<title>Simple Bookstore App</title>
+Confirm the ingress gateway has been created:
+
+kubectl get gateway
+Copied!
+Output (do not copy)
+
+NAME               AGE
+bookinfo-gateway   20m
+Get the external IP address of the ingress gateway:
+
+kubectl get svc istio-ingressgateway -n istio-system
+Copied!
+Output (do not copy)
+
+NAME                   TYPE           CLUSTER-IP      EXTERNAL-IP
+istio-ingressgateway   LoadBalancer   10.107.15.123   104.154.143.236
+In this example, the external IP of the ingress gateway is 104.154.143.236.
+
+Check that the Bookinfo app is running by sending a curl request to it from outside the cluster (be sure to update [EXTERNAL-IP] with the output from the previous command):
+
+export GATEWAY_URL=[EXTERNAL-IP]
+curl -I http://${GATEWAY_URL}/productpage
+Copied!
+Output (do not copy)
+
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+content-length: 4415
+server: istio-envoy
+...
+Use the Bookinfo application
+Congratulations! You have deployed an Istio-enabled application. Next, let's see the BookInfo application in action.
+
+Point your browser to http://[$GATEWAY_URL]/productpage to see the BookInfo web page. Don't forget to replace [$GATEWAY_URL] with your working external IP address.
+
+Bookinfo Product Page
+
+Refresh the page several times.
+
+Notice how you see three different versions of reviews, since we have not yet used Istio to control the version routing.
+
+There are three different book review services being called in a round-robin style:
+
+No stars
+Black stars
+Red stars
+Switching among the three is normal Kubernetes routing/balancing behavior.
